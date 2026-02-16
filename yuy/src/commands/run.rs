@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use std::process::Command;
-use crate::config::{get_models_dir, YUUKI_MODELS};
+use crate::config::{get_models_dir, YUUKI_MODELS, OLLAMA_ORG, HF_ORG};
 use crate::utils::command_exists;
 
 pub async fn execute(
@@ -62,8 +62,9 @@ pub async fn execute(
 
     match runtime_name.as_str() {
         "llama-cpp" => run_with_llama_cpp(&model_path, preset).await,
-        "ollama" => run_with_ollama(model, &model_path).await,
-        _ => anyhow::bail!("Unknown runtime: {}. Use 'llama-cpp' or 'ollama'", runtime_name),
+        "llama-hf" => run_with_llama_hf(model, &quant_str, preset).await,
+        "ollama" => run_with_ollama(model, &quant_str).await,
+        _ => anyhow::bail!("Unknown runtime: {}. Use 'llama-cpp', 'llama-hf', or 'ollama'", runtime_name),
     }
 }
 
@@ -118,7 +119,7 @@ async fn run_with_llama_cpp(model_path: &std::path::Path, preset: Option<String>
     Ok(())
 }
 
-async fn run_with_ollama(model: &str, _model_path: &std::path::Path) -> Result<()> {
+async fn run_with_ollama(model: &str, quant: &str) -> Result<()> {
     if !command_exists("ollama") {
         println!("{} ollama not found!", "✗".bright_red());
         println!("\n{} Install it first:", "→".bright_blue());
@@ -127,25 +128,72 @@ async fn run_with_ollama(model: &str, _model_path: &std::path::Path) -> Result<(
         return Ok(());
     }
 
-    println!(
-        "{} Note: Ollama integration is experimental.",
-        "⚠".bright_yellow()
-    );
-    println!("{} You'll need to import the model to Ollama first.", "→".bright_blue());
-    println!();
+    // Construct ollama model name: aguitachan3/yuuki-best:f32
+    let ollama_model = format!("{}/{}:{}", OLLAMA_ORG, model.to_lowercase(), quant);
 
-    // Check if ollama serve is running
-    println!("{} Checking Ollama service...", "→".bright_blue());
+    println!(
+        "{} Starting Ollama with {}...",
+        "▶".bright_green(),
+        ollama_model.bright_yellow()
+    );
+    println!();
     
-    // Try to run with ollama (this is simplified, real impl would be more complex)
     let status = Command::new("ollama")
         .arg("run")
-        .arg(model)
+        .arg(&ollama_model)
         .status()
         .context("Failed to execute ollama")?;
 
     if !status.success() {
-        println!("\n{} If the model is not in Ollama, you need to import it first.", "ℹ".bright_blue());
+        println!("\n{} Model not found in Ollama.", "ℹ".bright_blue());
+        println!("{} Pull it first: {}", "→".bright_blue(), format!("ollama pull {}", ollama_model).bright_green());
+    }
+
+    Ok(())
+}
+
+async fn run_with_llama_hf(model: &str, quant: &str, preset: Option<String>) -> Result<()> {
+    if !command_exists("llama-cli") {
+        println!("{} llama-cli not found!", "✗".bright_red());
+        println!("\n{} Install llama.cpp first:", "→".bright_blue());
+        println!("  Termux: {}", "pkg install llama-cpp".bright_green());
+        return Ok(());
+    }
+
+    // HuggingFace format: OpceanAI/Yuuki-best:F32
+    let hf_model = format!("{}/{}:{}", HF_ORG, model, quant.to_uppercase());
+
+    println!(
+        "{} Running directly from HuggingFace: {}",
+        "▶".bright_green(),
+        hf_model.bright_yellow()
+    );
+    println!("{} No download needed - streaming from HF", "ℹ".bright_blue());
+    println!();
+
+    // Configure parameters based on preset
+    let (temp, top_p) = match preset.as_deref() {
+        Some("creative") => (0.8, 0.9),
+        Some("precise") => (0.3, 0.5),
+        Some("balanced") | None => (0.6, 0.7),
+        _ => (0.6, 0.7),
+    };
+
+    // Run llama-cli with -hf flag
+    let status = Command::new("llama-cli")
+        .arg("-hf")
+        .arg(&hf_model)
+        .arg("--temp")
+        .arg(temp.to_string())
+        .arg("--top-p")
+        .arg(top_p.to_string())
+        .arg("-c")
+        .arg("4096")
+        .status()
+        .context("Failed to execute llama-cli with HuggingFace")?;
+
+    if !status.success() {
+        anyhow::bail!("llama-cli exited with error");
     }
 
     Ok(())

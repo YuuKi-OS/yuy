@@ -70,3 +70,6 @@ pub fn save_config(config: &Config) -> Result<()> {
 
 pub const YUUKI_MODELS: &[&str] = &["Yuuki-best", "Yuuki-3.7", "Yuuki-v0.1"];
 pub const HF_ORG: &str = "OpceanAI";
+pub const AVAILABLE_QUANTS: &[&str] = &["q4_0", "q4_k_m", "q5_k_m", "q8_0", "f32"];
+pub const OLLAMA_ORG: &str = "aguitachan3";
+pub const YUUKI_API: &str = "https://huggingface.co/spaces/OpceanAI/Yuuki-api";
